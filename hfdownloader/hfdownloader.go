@@ -64,7 +64,7 @@ type hflfs struct {
 	PointerSize int    `json:"pointerSize"`
 }
 
-func DownloadModel(ModelDatasetName string, AppendFilterToPath bool, SkipSHA bool, IsDataset bool, DestinationBasePath string, ModelBranch string, concurrentConnections int, token string, silentMode bool) error {
+func DownloadModel(ModelDatasetName string, AppendFilterToPath bool, SkipSHA bool, IsDataset bool, DestinationBasePath string, ModelBranch string, concurrentConnections int, token string, silentMode bool, strictFilter bool) error {
 	NumConnections = concurrentConnections
 
 	//make sure we dont include dataset filter within folder creation
@@ -92,7 +92,7 @@ func DownloadModel(ModelDatasetName string, AppendFilterToPath bool, SkipSHA boo
 				return err
 			}
 			newModelDatasetName := fmt.Sprintf("%s:%s", modelP, ff)
-			err = processHFFolderTree(ffpath, IsDataset, SkipSHA, newModelDatasetName, ModelBranch, "", silentMode) // passing empty as foldername, because its the first root folder
+			err = processHFFolderTree(ffpath, IsDataset, SkipSHA, newModelDatasetName, ModelBranch, "", silentMode, strictFilter) // passing empty as foldername, because its the first root folder
 			if err != nil {
 				fmt.Println(errorColor("Error:"), err)
 				return err
@@ -107,7 +107,7 @@ func DownloadModel(ModelDatasetName string, AppendFilterToPath bool, SkipSHA boo
 		//ok we need to add some logic here now to analyze the model/dataset before we go into downloading
 
 		//get root path files and folders
-		err = processHFFolderTree(modelPath, IsDataset, SkipSHA, ModelDatasetName, ModelBranch, "", silentMode) // passing empty as foldername, because its the first root folder
+		err = processHFFolderTree(modelPath, IsDataset, SkipSHA, ModelDatasetName, ModelBranch, "", silentMode, strictFilter) // passing empty as foldername, because its the first root folder
 		if err != nil {
 			fmt.Println(errorColor("Error:"), err)
 			return err
@@ -116,7 +116,7 @@ func DownloadModel(ModelDatasetName string, AppendFilterToPath bool, SkipSHA boo
 
 	return nil
 }
-func processHFFolderTree(ModelPath string, IsDataset bool, SkipSHA bool, ModelDatasetName string, Branch string, folderName string, silentMode bool) error {
+func processHFFolderTree(ModelPath string, IsDataset bool, SkipSHA bool, ModelDatasetName string, Branch string, folderName string, silentMode bool, strictFilter bool) error {
 	JsonTreeVariable := JsonModelsFileTreeURL //we assume its Model first
 	RawFileURL := RawModelFileURL
 	LfsResolverURL := LfsModelResolverURL
@@ -163,7 +163,7 @@ func processHFFolderTree(ModelPath string, IsDataset bool, SkipSHA bool, ModelDa
 			if err := os.MkdirAll(filePath, os.ModePerm); err != nil {
 				return err
 			}
-			if err := processHFFolderTree(ModelPath, IsDataset, SkipSHA, ModelDatasetName, Branch, file.Path, silentMode); err != nil {
+			if err := processHFFolderTree(ModelPath, IsDataset, SkipSHA, ModelDatasetName, Branch, file.Path, silentMode, strictFilter); err != nil {
 				return err
 			}
 		} else {
@@ -234,7 +234,7 @@ func processHFFolderTree(ModelPath string, IsDataset bool, SkipSHA bool, ModelDa
 			}
 			jsonFilesList[i].SkipDownloading = true
 			//now if this a folder, this whole function will be called again recursively
-			err = processHFFolderTree(ModelPath, IsDataset, SkipSHA, ModelDatasetName, Branch, jsonFilesList[i].Path, silentMode) //recursive call
+			err = processHFFolderTree(ModelPath, IsDataset, SkipSHA, ModelDatasetName, Branch, jsonFilesList[i].Path, silentMode, strictFilter) //recursive call
 			if err != nil {
 				return err
 			}
@@ -252,7 +252,8 @@ func processHFFolderTree(ModelPath string, IsDataset bool, SkipSHA bool, ModelDa
 			//Check for filter
 			if HasFilter {
 				filenameLowerCase := strings.ToLower(jsonFilesList[i].Path)
-				if strings.HasSuffix(filenameLowerCase, ".act") || strings.HasSuffix(filenameLowerCase, ".bin") ||
+				// [#31] Apply filter expression to all files if strictFilter is set
+				if strictFilter || strings.HasSuffix(filenameLowerCase, ".act") || strings.HasSuffix(filenameLowerCase, ".bin") ||
 					strings.Contains(filenameLowerCase, ".gguf") || // either *.gguf or *.gguf-split-{a, b, ...}
 					strings.HasSuffix(filenameLowerCase, ".safetensors") || strings.HasSuffix(filenameLowerCase, ".pt") || strings.HasSuffix(filenameLowerCase, ".meta") ||
 					strings.HasSuffix(filenameLowerCase, ".zip") || strings.HasSuffix(filenameLowerCase, ".z01") || strings.HasSuffix(filenameLowerCase, ".onnx") || strings.HasSuffix(filenameLowerCase, ".data") ||

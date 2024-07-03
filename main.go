@@ -35,6 +35,7 @@ type Config struct {
 	RetryInterval      int    `json:"retry_interval"`
 	JustDownload       bool   `json:"just_download"`
 	SilentMode         bool   `json:"silent_mode"`
+	StrictFilter       bool   `json:"strict_filter"`
 }
 
 // DefaultConfig returns a config instance populated with default values.
@@ -45,6 +46,7 @@ func DefaultConfig() Config {
 		Storage:        "./downloads",
 		MaxRetries:     3,
 		RetryInterval:  5,
+		StrictFilter:   false,
 	}
 }
 
@@ -158,11 +160,11 @@ func main() {
 				config.AuthToken = os.Getenv("HUGGING_FACE_HUB_TOKEN")
 			}
 
-			fmt.Printf("Branch: %s\nStorage: %s\nNumberOfConcurrentConnections: %d\nAppend Filter Names to Folder: %t\nSkip SHA256 Check: %t\nToken: %s\n",
-				config.Branch, config.Storage, config.NumConnections, config.OneFolderPerFilter, config.SkipSHA, config.AuthToken)
+			fmt.Printf("Branch: %s\nStorage: %s\nNumberOfConcurrentConnections: %d\nAppend Filter Names to Folder: %t\nSkip SHA256 Check: %t\nToken: %s\nStrict Filter: %t\n",
+				config.Branch, config.Storage, config.NumConnections, config.OneFolderPerFilter, config.SkipSHA, config.AuthToken, config.StrictFilter)
 
 			for i := 0; i < config.MaxRetries; i++ {
-				if err := hfd.DownloadModel(ModelOrDataSet, config.OneFolderPerFilter, config.SkipSHA, IsDataset, config.Storage, config.Branch, config.NumConnections, config.AuthToken, config.SilentMode); err != nil {
+				if err := hfd.DownloadModel(ModelOrDataSet, config.OneFolderPerFilter, config.SkipSHA, IsDataset, config.Storage, config.Branch, config.NumConnections, config.AuthToken, config.SilentMode, config.StrictFilter); err != nil {
 					fmt.Printf("Warning: attempt %d / %d failed, error: %s\n", i+1, config.MaxRetries, err)
 					time.Sleep(time.Duration(config.RetryInterval) * time.Second)
 					continue
@@ -187,6 +189,7 @@ func main() {
 	rootCmd.PersistentFlags().IntVar(&config.RetryInterval, "retryInterval", config.RetryInterval, "Interval between retries in seconds")
 	rootCmd.PersistentFlags().BoolVarP(&justDownload, "justDownload", "j", config.JustDownload, "Just download the model to the current directory and assume the first argument is the model name")
 	rootCmd.PersistentFlags().BoolVarP(&config.SilentMode, "silentMode", "q", config.SilentMode, "Disable progress bar output printing")
+	rootCmd.PersistentFlags().BoolVarP(&config.StrictFilter, "strictFilter", "F", config.StrictFilter, "Apply filter expressions to all files")
 
 	// Add the generate-config command
 	generateCmd := &cobra.Command{
