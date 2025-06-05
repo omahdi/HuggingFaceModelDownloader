@@ -120,22 +120,24 @@ func processHFFolderTree(ModelPath string, IsDataset bool, SkipSHA bool, ModelDa
 	JsonTreeVariable := JsonModelsFileTreeURL //we assume its Model first
 	RawFileURL := RawModelFileURL
 	LfsResolverURL := LfsModelResolverURL
-	AgreementURL := fmt.Sprintf(AgreementModelURL, ModelDatasetName)
 	HasFilter := false
+	ModelDatasetNameNoFilter := ModelDatasetName
 	var FilterBinFileString []string
+	var AgreementURL string
 	if strings.Contains(ModelDatasetName, ":") && !IsDataset {
 		HasFilter = true
 		//remove the filtered content from Model Name
 		f := strings.Split(ModelDatasetName, ":")
-		ModelDatasetName = f[0]
+		ModelDatasetNameNoFilter = f[0]
 		FilterBinFileString = strings.Split(strings.ToLower(f[1]), ",")
 		fmt.Printf("\n%s", infoColor("Filter Has been applied, will include LFS Model Files that contains: ", FilterBinFileString))
+		AgreementURL = fmt.Sprintf(AgreementModelURL, ModelDatasetNameNoFilter)
 	}
 	if IsDataset {
 		JsonTreeVariable = JsonDatasetFileTreeURL //set this to true if it its set to Dataset
 		RawFileURL = RawDatasetFileURL
 		LfsResolverURL = LfsDatasetResolverURL
-		AgreementURL = fmt.Sprintf(AgreementDatasetURL, ModelDatasetName)
+		AgreementURL = fmt.Sprintf(AgreementDatasetURL, ModelDatasetNameNoFilter)
 	}
 
 	tempFolder := path.Join(ModelPath, folderName, "tmp")
@@ -154,7 +156,7 @@ func processHFFolderTree(ModelPath string, IsDataset bool, SkipSHA bool, ModelDa
 	// updated ver: 1.2.5; I cannot clear it if I'm trying to implement resume broken downloads based on a single file
 	// defer os.RemoveAll(tempFolder) //delete tmp folder upon returning from this function
 	branch := Branch
-	JsonFileListURL := fmt.Sprintf(JsonTreeVariable, ModelDatasetName, branch, folderName)
+	JsonFileListURL := fmt.Sprintf(JsonTreeVariable, ModelDatasetNameNoFilter, branch, folderName)
 	jsonFilesList := []hfmodel{}
 	for _, file := range jsonFilesList {
 		filePath := path.Join(ModelPath, file.Path)
@@ -163,6 +165,7 @@ func processHFFolderTree(ModelPath string, IsDataset bool, SkipSHA bool, ModelDa
 			if err := os.MkdirAll(filePath, os.ModePerm); err != nil {
 				return err
 			}
+			// #31 keep original model/dataset name with filter suffix
 			if err := processHFFolderTree(ModelPath, IsDataset, SkipSHA, ModelDatasetName, Branch, file.Path, silentMode, strictFilter); err != nil {
 				return err
 			}
@@ -241,33 +244,41 @@ func processHFFolderTree(ModelPath string, IsDataset bool, SkipSHA bool, ModelDa
 			continue
 		}
 
-		jsonFilesList[i].DownloadLink = fmt.Sprintf(RawFileURL, ModelDatasetName, branch, jsonFilesList[i].Path)
+		jsonFilesList[i].DownloadLink = fmt.Sprintf(RawFileURL, ModelDatasetNameNoFilter, branch, jsonFilesList[i].Path)
 		if jsonFilesList[i].Lfs != nil {
 			jsonFilesList[i].IsLFS = true
-			resolverURL := fmt.Sprintf(LfsResolverURL, ModelDatasetName, branch, jsonFilesList[i].Path)
+			resolverURL := fmt.Sprintf(LfsResolverURL, ModelDatasetNameNoFilter, branch, jsonFilesList[i].Path)
+			fmt.Printf("getting redirect link for: %s\n", resolverURL)
 			getLink, err := getRedirectLink(resolverURL)
 			if err != nil {
-				return err
-			}
-			//Check for filter
-			if HasFilter {
-				filenameLowerCase := strings.ToLower(jsonFilesList[i].Path)
-				// [#31] Apply filter expression to all files if strictFilter is set
-				if strictFilter || strings.HasSuffix(filenameLowerCase, ".act") || strings.HasSuffix(filenameLowerCase, ".bin") ||
-					strings.Contains(filenameLowerCase, ".gguf") || // either *.gguf or *.gguf-split-{a, b, ...}
-					strings.HasSuffix(filenameLowerCase, ".safetensors") || strings.HasSuffix(filenameLowerCase, ".pt") || strings.HasSuffix(filenameLowerCase, ".meta") ||
-					strings.HasSuffix(filenameLowerCase, ".zip") || strings.HasSuffix(filenameLowerCase, ".z01") || strings.HasSuffix(filenameLowerCase, ".onnx") || strings.HasSuffix(filenameLowerCase, ".data") ||
-					strings.HasSuffix(filenameLowerCase, ".onnx_data") {
-					jsonFilesList[i].FilterSkip = true //we assume its skipped, unless below condition range match
-					for _, ff := range FilterBinFileString {
-						if strings.Contains(filenameLowerCase, ff) {
-							jsonFilesList[i].FilterSkip = false
-						}
-					}
-
-				}
+				fmt.Printf("Error: No redirect link for %s, skipping\n", jsonFilesList[i].Path)
+				continue
+				//return err
 			}
 			jsonFilesList[i].DownloadLink = getLink
+		}
+		// Check for filter
+		// [#31] Apply filter to everything, not just LFS files
+		if HasFilter {
+			filenameLowerCase := strings.ToLower(jsonFilesList[i].Path)
+			// [#31] Apply filter expression to all files if strictFilter is set
+			if strictFilter || strings.HasSuffix(filenameLowerCase, ".act") || strings.HasSuffix(filenameLowerCase, ".bin") ||
+				strings.Contains(filenameLowerCase, ".gguf") || // either *.gguf or *.gguf-split-{a, b, ...}
+				strings.HasSuffix(filenameLowerCase, ".safetensors") || strings.HasSuffix(filenameLowerCase, ".pt") || strings.HasSuffix(filenameLowerCase, ".meta") ||
+				strings.HasSuffix(filenameLowerCase, ".zip") || strings.HasSuffix(filenameLowerCase, ".z01") || strings.HasSuffix(filenameLowerCase, ".onnx") || strings.HasSuffix(filenameLowerCase, ".data") ||
+				strings.HasSuffix(filenameLowerCase, ".onnx_data") {
+				jsonFilesList[i].FilterSkip = true //we assume its skipped, unless below condition range match
+				for _, ff := range FilterBinFileString {
+					fmt.Printf("filter check: %s ~ %s: ", filenameLowerCase, ff)
+					if strings.Contains(filenameLowerCase, ff) {
+						fmt.Print("MATCH\n")
+						jsonFilesList[i].FilterSkip = false
+					} else {
+						fmt.Print("NO MATCH\n")
+					}
+				}
+
+			}
 		}
 	}
 	// UNCOMMENT BELOW TWO LINES TO DEBUG THIS FOLDER JSON STRUCTURE
@@ -278,9 +289,11 @@ func processHFFolderTree(ModelPath string, IsDataset bool, SkipSHA bool, ModelDa
 		//check if the file exists before
 		// Check if the file exists
 		if jsonFilesList[i].IsDirectory {
+			fmt.Printf("[#31] loop 2: index %d is a directory, skipping\n", i)
 			continue
 		}
 		if jsonFilesList[i].FilterSkip {
+			fmt.Printf("[#31] loop 2: index %d has FilterSkip flag set\n", i)
 			continue
 		}
 		filename := jsonFilesList[i].AppendedPath
@@ -320,17 +333,20 @@ func processHFFolderTree(ModelPath string, IsDataset bool, SkipSHA bool, ModelDa
 	//3ed loop through the files, downloading missing/failed files
 	for i := range jsonFilesList {
 		if jsonFilesList[i].IsDirectory {
+			fmt.Printf("[#31] loop 3: index %d is a directory, skipping\n", i)
 			continue
 		}
 		if jsonFilesList[i].SkipDownloading {
+			fmt.Printf("[#31] loop 3: index %d has SkipDownloading flag set\n", i)
 			fmt.Printf("\n%s", infoColor("Skipping: ", jsonFilesList[i].AppendedPath))
 			continue
 		}
 		if jsonFilesList[i].FilterSkip {
+			fmt.Printf("[#31] loop 3: index %d has FilterSkip flag set\n", i)
 			fmt.Printf("\n%s", infoColor("Filter Skipping: ", jsonFilesList[i].AppendedPath))
 			continue
 		}
-		// fmt.Printf("Downloading: %s\n", jsonFilesList[i].Path)
+		fmt.Printf("Downloading: %s (AppendPath: %s)\n", jsonFilesList[i].Path, jsonFilesList[i].AppendedPath)
 		if jsonFilesList[i].IsLFS {
 			err := downloadFileMultiThread(tempFolder, jsonFilesList[i].DownloadLink, jsonFilesList[i].AppendedPath, silentMode)
 			if err != nil {
